@@ -1,9 +1,23 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import asyncio, os, sys, time, logging, shutil
+"""
+💀 BC RELAY – RAILWAY EDITION (FULLY UPDATED) 💀
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Owner-only DM commands. All audio effects included.
+Works with py-tgcalls==2.1.0 – uses only InputAudioStream.
+"""
+
+import asyncio
+import os
+import sys
+import time
+import logging
+import shutil
 from pathlib import Path
 from typing import Optional, List
+
+# ==================== ENV LOAD ====================
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -15,27 +29,39 @@ if missing:
 
 API_ID = int(os.getenv("API_ID"))
 API_HASH = os.getenv("API_HASH")
-PHONE_NUMBER = os.getenv("PHONE_NUMBER")
+PHONE_NUMBER = os.getenv("PHONE_NUMBER")   # optional
 OWNER_ID = int(os.getenv("OWNER_ID"))
 
+# ==================== IMPORTS ====================
 import numpy as np
 from scipy import signal as scipy_signal
+
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message
+
 from pytgcalls import PyTgCalls
-# ======== ONLY THIS IMPORT ========
+# ---------- ONLY THIS IMPORT ----------
 from pytgcalls.types import InputAudioStream
 from pytgcalls.exceptions import GroupCallNotFound, NoActiveGroupCall, NotInGroupCallError
 
+# ==================== SETUP ====================
 AUDIO_DIR = Path("saved_audios")
 AUDIO_DIR.mkdir(exist_ok=True)
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)]
+)
 logger = logging.getLogger("Relay")
 
-SAMPLE_RATE, CHANNELS, FRAME_DURATION = 48000, 1, 20
+# ==================== CONSTANTS ====================
+SAMPLE_RATE = 48000
+CHANNELS = 1
+FRAME_DURATION = 20   # ms
 FRAME_SIZE = int(SAMPLE_RATE * FRAME_DURATION / 1000)
 
+# ==================== CONFIG ====================
 class Config:
     def __init__(self):
         self.vc_chat: Optional[int] = None
@@ -55,6 +81,7 @@ class Config:
 
 config = Config()
 
+# ==================== AUDIO PROCESSOR ====================
 class AudioProcessor:
     def __init__(self):
         self.bass_coeffs = None
@@ -78,20 +105,27 @@ class AudioProcessor:
             return audio_data
         try:
             samples = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
+
+            # Bass boost
             if config.bass > 1.0 and self.bass_coeffs:
                 b, a = self.bass_coeffs
                 filtered = scipy_signal.filtfilt(b, a, samples)
-                samples += (filtered * (1.0 + (config.bass - 1.0) * 0.5))
+                bass_gain = 1.0 + (config.bass - 1.0) * 0.5
+                samples += filtered * bass_gain
+
+            # 5‑band EQ (only low and high shelf for simplicity)
             eq = config.equalizer
             nyquist = SAMPLE_RATE / 2
             if eq[0] != 1.0:
                 b, a = scipy_signal.butter(2, 200/nyquist, btype='low')
                 filtered = scipy_signal.filtfilt(b, a, samples)
-                samples += (filtered * (eq[0] - 1.0) * 0.5)
+                samples += filtered * (eq[0] - 1.0) * 0.5
             if eq[4] != 1.0:
                 b, a = scipy_signal.butter(2, 4000/nyquist, btype='high')
                 filtered = scipy_signal.filtfilt(b, a, samples)
-                samples += (filtered * (eq[4] - 1.0) * 0.3)
+                samples += filtered * (eq[4] - 1.0) * 0.3
+
+            # Reverb (feedback delay)
             if config.reverb > 0.01:
                 delay = int(SAMPLE_RATE * 0.05)
                 gain = config.reverb * 0.6
@@ -102,6 +136,8 @@ class AudioProcessor:
                     self.reverb_buffer[self.reverb_index] = samples[i] + out[i] * 0.3
                     self.reverb_index = (self.reverb_index + 1) % len(self.reverb_buffer)
                 samples += out * gain
+
+            # Echo (slapback)
             if config.echo > 0.01:
                 delay = int(SAMPLE_RATE * 0.08)
                 gain = config.echo * 0.5
@@ -112,24 +148,45 @@ class AudioProcessor:
                     self.echo_buffer[self.echo_index] = samples[i] + out[i] * 0.2
                     self.echo_index = (self.echo_index + 1) % len(self.echo_buffer)
                 samples += out * gain
+
+            # Compressor
             rms = np.sqrt(np.mean(samples**2))
-            if rms > 0.08:
-                samples *= (0.08 / rms) ** 0.7
+            threshold = 0.08
+            if rms > threshold:
+                gain_reduction = (threshold / rms) ** 0.7
+                samples *= gain_reduction
             samples *= 1.8
+
+            # Volume boost
             samples *= (config.boost / 10.0)
+
+            # Limiter (soft clipping)
             samples = np.tanh(samples * 1.2) * 0.98
+
+            # Normalize
             max_val = np.max(np.abs(samples))
             if max_val > 0.95:
-                samples /= max_val * 0.95
+                samples = samples / max_val * 0.95
+
             return (samples * 32767).astype(np.int16).tobytes()
+
         except Exception as e:
             logger.error(f"Audio processing error: {e}")
             return audio_data
 
 audio_processor = AudioProcessor()
-app = Client("ELUMTER_COPY_userbot", api_id=API_ID, api_hash=API_HASH, phone_number=PHONE_NUMBER or None, workers=4)
+
+# ==================== TELEGRAM CLIENT ====================
+app = Client(
+    "ELUMTER_COPY_userbot",
+    api_id=API_ID,
+    api_hash=API_HASH,
+    phone_number=PHONE_NUMBER if PHONE_NUMBER else None,
+    workers=4
+)
 calls = PyTgCalls(app)
 
+# ==================== HELPERS ====================
 def is_owner(user_id: int) -> bool:
     return user_id == OWNER_ID
 
@@ -154,8 +211,16 @@ async def save_audio(message: Message) -> Optional[str]:
 
 async def join_vc(chat_id: int) -> bool:
     try:
-        await calls.join_group_call(chat_id, InputAudioStream(sample_rate=SAMPLE_RATE, channels=CHANNELS, frame_duration=FRAME_DURATION))
-        config.in_vc, config.vc_chat = True, chat_id
+        await calls.join_group_call(
+            chat_id,
+            InputAudioStream(
+                sample_rate=SAMPLE_RATE,
+                channels=CHANNELS,
+                frame_duration=FRAME_DURATION,
+            )
+        )
+        config.in_vc = True
+        config.vc_chat = chat_id
         logger.info(f"Joined VC in {chat_id}")
         return True
     except Exception as e:
@@ -166,7 +231,8 @@ async def leave_vc() -> bool:
     if config.in_vc and config.vc_chat:
         try:
             await calls.leave_group_call(config.vc_chat)
-            config.in_vc, config.vc_chat = False, None
+            config.in_vc = False
+            config.vc_chat = None
             logger.info("Left VC")
             return True
         except Exception as e:
@@ -177,7 +243,15 @@ async def play_audio(file_path: str) -> bool:
     if not config.in_vc or not config.vc_chat:
         return False
     try:
-        await calls.change_stream(config.vc_chat, InputAudioStream(path=file_path, sample_rate=SAMPLE_RATE, channels=CHANNELS, frame_duration=FRAME_DURATION))
+        await calls.change_stream(
+            config.vc_chat,
+            InputAudioStream(
+                path=file_path,
+                sample_rate=SAMPLE_RATE,
+                channels=CHANNELS,
+                frame_duration=FRAME_DURATION,
+            )
+        )
         return True
     except Exception as e:
         logger.error(f"Play error: {e}")
@@ -185,15 +259,22 @@ async def play_audio(file_path: str) -> bool:
 
 def format_status() -> str:
     eq = config.equalizer
-    return (f"💀 **BC RELAY – RAILWAY**\n━━━━━━━━━━━━━━━━━\n"
-            f"🔊 Active: `{config.active}`\n📡 In VC: `{config.in_vc}` (chat: `{config.vc_chat}`)\n"
-            f"🔇 Mute Bypass: `{'ON ✅' if config.mute_bypass else 'OFF'}`\n"
-            f"🔊 Boost: `{config.boost}x`\n🎸 Bass: `{config.bass}/10`\n"
-            f"🎚️ EQ: `{eq[0]} {eq[1]} {eq[2]} {eq[3]} {eq[4]}`\n"
-            f"🌀 Reverb: `{config.reverb:.2f}`\n📢 Echo: `{config.echo:.2f}`\n"
-            f"🎵 Current: `{Path(config.current_audio_file).name if config.current_audio_file else 'None'}`\n"
-            f"📋 Playlist: `{len(config.playlist)}` tracks")
+    return (
+        f"💀 **BC RELAY – RAILWAY**\n"
+        f"━━━━━━━━━━━━━━━━━\n"
+        f"🔊 Active: `{config.active}`\n"
+        f"📡 In VC: `{config.in_vc}` (chat: `{config.vc_chat}`)\n"
+        f"🔇 Mute Bypass: `{'ON ✅' if config.mute_bypass else 'OFF'}`\n"
+        f"🔊 Boost: `{config.boost}x`\n"
+        f"🎸 Bass: `{config.bass}/10`\n"
+        f"🎚️ EQ: `{eq[0]} {eq[1]} {eq[2]} {eq[3]} {eq[4]}`\n"
+        f"🌀 Reverb: `{config.reverb:.2f}`\n"
+        f"📢 Echo: `{config.echo:.2f}`\n"
+        f"🎵 Current: `{Path(config.current_audio_file).name if config.current_audio_file else 'None'}`\n"
+        f"📋 Playlist: `{len(config.playlist)}` tracks"
+    )
 
+# ==================== AUTO-RECONNECT ====================
 async def auto_reconnect_loop():
     while True:
         await asyncio.sleep(config.auto_reconnect_delay)
@@ -206,10 +287,13 @@ async def auto_reconnect_loop():
             else:
                 logger.error("Reconnect failed")
 
+# ==================== OWNER DM COMMANDS ====================
 @app.on_message(filters.private & filters.create(lambda _, m: is_owner(m.from_user.id)))
 async def owner_commands(client: Client, message: Message):
     text = message.text or ""
     cmd = text.lower().strip()
+
+    # Save audio from reply or direct
     if message.reply_to_message and (message.reply_to_message.audio or message.reply_to_message.voice):
         audio_path = await save_audio(message.reply_to_message)
         if audio_path:
@@ -220,6 +304,7 @@ async def owner_commands(client: Client, message: Message):
         else:
             await message.reply("❌ Save failed")
         return
+
     if message.audio or message.voice or message.video_note:
         audio_path = await save_audio(message)
         if audio_path:
@@ -230,10 +315,35 @@ async def owner_commands(client: Client, message: Message):
         else:
             await message.reply("❌ Save failed")
         return
+
     parts = cmd.split()
     main_cmd = parts[0] if parts else ""
+
+    # ---------- HELP ----------
     if main_cmd in ["/start", "!start", "/help", "!help"]:
-        await message.reply("💀 **BC RELAY – OWNER COMMANDS** 💀\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n`!join -100xxx` – Join VC\n`!leave` – Leave VC\n`!play` – Play current audio\n`!stop` – Stop & leave\n`!boost 50` – Volume (1-100)\n`!bass 8` – Bass (1-10)\n`!eq 2 1 3 2 4` – 5‑band EQ (0-10)\n`!reverb 0.5` – Reverb (0-1)\n`!echo 0.3` – Echo (0-1)\n`!mutebypass on/off`\n`!autoreconnect on/off`\n`!playlist add/remove/clear`\n`!next` – Next track\n`!status` – Show status\n`!save` – Save copy\n`!reset` – Reset all\n\n📤 Send audio/voice to save.")
+        await message.reply(
+            "💀 **BC RELAY – OWNER COMMANDS** 💀\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "`!join -100xxx` – Join VC\n"
+            "`!leave` – Leave VC\n"
+            "`!play` – Play current audio\n"
+            "`!stop` – Stop & leave\n"
+            "`!boost 50` – Volume (1-100)\n"
+            "`!bass 8` – Bass (1-10)\n"
+            "`!eq 2 1 3 2 4` – 5‑band EQ (0-10)\n"
+            "`!reverb 0.5` – Reverb (0-1)\n"
+            "`!echo 0.3` – Echo (0-1)\n"
+            "`!mutebypass on/off`\n"
+            "`!autoreconnect on/off`\n"
+            "`!playlist add/remove/clear`\n"
+            "`!next` – Next track\n"
+            "`!status` – Show status\n"
+            "`!save` – Save copy\n"
+            "`!reset` – Reset all\n\n"
+            "📤 Send audio/voice to save."
+        )
+
+    # ---------- JOIN ----------
     elif main_cmd == "!join":
         if len(parts) > 1:
             try:
@@ -245,16 +355,20 @@ async def owner_commands(client: Client, message: Message):
                 if await join_vc(chat_id):
                     await message.reply(f"✅ Joined VC in `{chat_id}`")
                 else:
-                    await message.reply("❌ Join VC failed. Is VC active?")
+                    await message.reply("❌ Join VC failed. Is there an active voice chat?")
             except:
                 await message.reply("❌ Use: `!join -100xxxxxxxxx`")
         else:
             await message.reply("❌ Use: `!join -100xxxxxxxxx`")
+
+    # ---------- LEAVE ----------
     elif main_cmd == "!leave":
         if await leave_vc():
             await message.reply("✅ Left VC")
         else:
             await message.reply("❌ Not in VC")
+
+    # ---------- PLAY ----------
     elif main_cmd == "!play":
         if not config.in_vc:
             await message.reply("❌ Join VC first: `!join -100xxx`")
@@ -267,10 +381,14 @@ async def owner_commands(client: Client, message: Message):
             await message.reply(f"🎵 Playing: `{Path(config.current_audio_file).name}`")
         else:
             await message.reply("❌ Play error")
+
+    # ---------- STOP ----------
     elif main_cmd in ["!stop", "/stop"]:
         config.active = False
         await leave_vc()
         await message.reply("✅ Stopped")
+
+    # ---------- BOOST ----------
     elif main_cmd == "!boost":
         if len(parts) > 1:
             try:
@@ -284,6 +402,8 @@ async def owner_commands(client: Client, message: Message):
                 await message.reply("❌ Use: `!boost 50`")
         else:
             await message.reply(f"Boost: `{config.boost}x`")
+
+    # ---------- BASS ----------
     elif main_cmd == "!bass":
         if len(parts) > 1:
             try:
@@ -298,6 +418,8 @@ async def owner_commands(client: Client, message: Message):
                 await message.reply("❌ Use: `!bass 8`")
         else:
             await message.reply(f"Bass: `{config.bass}/10`")
+
+    # ---------- EQ ----------
     elif main_cmd == "!eq":
         if len(parts) == 6:
             try:
@@ -312,6 +434,8 @@ async def owner_commands(client: Client, message: Message):
         else:
             eq = config.equalizer
             await message.reply(f"EQ: `{eq}`")
+
+    # ---------- REVERB ----------
     elif main_cmd == "!reverb":
         if len(parts) > 1:
             try:
@@ -325,6 +449,8 @@ async def owner_commands(client: Client, message: Message):
                 await message.reply("❌ Use: `!reverb 0.5`")
         else:
             await message.reply(f"Reverb: `{config.reverb:.2f}`")
+
+    # ---------- ECHO ----------
     elif main_cmd == "!echo":
         if len(parts) > 1:
             try:
@@ -338,6 +464,8 @@ async def owner_commands(client: Client, message: Message):
                 await message.reply("❌ Use: `!echo 0.3`")
         else:
             await message.reply(f"Echo: `{config.echo:.2f}`")
+
+    # ---------- MUTE BYPASS ----------
     elif main_cmd == "!mutebypass":
         if len(parts) > 1:
             state = parts[1].lower()
@@ -351,6 +479,8 @@ async def owner_commands(client: Client, message: Message):
                 await message.reply("❌ on/off")
         else:
             await message.reply(f"Mute Bypass: `{'ON' if config.mute_bypass else 'OFF'}`")
+
+    # ---------- AUTORECONNECT ----------
     elif main_cmd == "!autoreconnect":
         if len(parts) > 1:
             state = parts[1].lower()
@@ -364,6 +494,8 @@ async def owner_commands(client: Client, message: Message):
                 await message.reply("❌ on/off")
         else:
             await message.reply(f"Auto-reconnect: `{'ON' if config.auto_reconnect else 'OFF'}`")
+
+    # ---------- PLAYLIST ----------
     elif main_cmd == "!playlist":
         if len(parts) > 1:
             sub = parts[1].lower()
@@ -397,6 +529,8 @@ async def owner_commands(client: Client, message: Message):
                 await message.reply(msg)
             else:
                 await message.reply("📋 Empty")
+
+    # ---------- NEXT ----------
     elif main_cmd == "!next":
         if config.playlist:
             config.playlist_index = (config.playlist_index + 1) % len(config.playlist)
@@ -407,8 +541,12 @@ async def owner_commands(client: Client, message: Message):
                 config.active = True
         else:
             await message.reply("❌ Playlist empty")
+
+    # ---------- STATUS ----------
     elif main_cmd == "!status":
         await message.reply(format_status())
+
+    # ---------- SAVE ----------
     elif main_cmd == "!save":
         if config.current_audio_file and os.path.exists(config.current_audio_file):
             base = Path(config.current_audio_file).stem
@@ -420,6 +558,8 @@ async def owner_commands(client: Client, message: Message):
                 await message.reply(f"❌ Error: {e}")
         else:
             await message.reply("❌ No current audio")
+
+    # ---------- RESET ----------
     elif main_cmd == "!reset":
         config.active = False
         await leave_vc()
@@ -433,9 +573,12 @@ async def owner_commands(client: Client, message: Message):
         config.playlist.clear()
         config.current_audio_file = None
         await message.reply("✅ Reset to defaults")
+
+    # ---------- UNKNOWN ----------
     else:
         await message.reply("❌ Unknown. Use `/start` for help.")
 
+# ==================== VC EVENTS ====================
 @calls.on_stream_end()
 async def stream_end_handler(client, update):
     logger.info("Stream ended")
@@ -450,13 +593,24 @@ async def on_voice_chat_closed(client, chat_id):
     logger.warning(f"Voice chat closed in {chat_id}")
     config.in_vc = False
 
+# ==================== MAIN ====================
 async def main():
-    print("="*60 + "\n💀 BC RELAY – RAILWAY EDITION 💀\n" + "="*60)
-    print(f"👑 Owner: {OWNER_ID}\n📱 Account: {PHONE_NUMBER or 'Session file'}\n🔇 Mute Bypass: ENABLED\n" + "="*60)
+    print("=" * 60)
+    print("💀 BC RELAY – RAILWAY EDITION (FULLY UPDATED) 💀")
+    print("=" * 60)
+    print(f"👑 Owner: {OWNER_ID}")
+    print(f"📱 Account: {PHONE_NUMBER or 'Session file'}")
+    print("🔇 Mute Bypass: ENABLED")
+    print("=" * 60)
+
     await app.start()
     await calls.start()
     asyncio.create_task(auto_reconnect_loop())
-    print("\n✅ Ready! Only owner DM commands work.\n💀 MUTE BYPASS ACTIVE\n" + "="*60)
+
+    print("\n✅ Ready! Only owner DM commands work.")
+    print("💀 MUTE BYPASS ACTIVE")
+    print("=" * 60)
+
     await idle()
 
 if __name__ == "__main__":
