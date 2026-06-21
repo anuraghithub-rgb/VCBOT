@@ -39,7 +39,8 @@ from pyrogram import Client, filters, idle
 from pyrogram.types import Message
 from pyrogram.errors import FloodWait, PeerIdInvalid, ChannelInvalid
 from pytgcalls import PyTgCalls
-from pytgcalls.types.input_stream import AudioStream, InputAudioStream
+# FIXED IMPORT – no .input_stream
+from pytgcalls.types import AudioStream, InputAudioStream
 from pytgcalls.exceptions import GroupCallNotFound, NoActiveGroupCall, NotInGroupCallError
 
 AUDIO_DIR = Path("saved_audios")
