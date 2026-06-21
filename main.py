@@ -4,7 +4,8 @@
 """
 💀 NUCLEAR VOICE RELAY – RAILWAY EDITION 💀
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Owner-only DM commands. All effects included.
+Owner-only DM commands. All audio effects included.
+Works with py-tgcalls==2.1.0 and pyrogram==2.0.106.
 """
 
 import asyncio
@@ -16,7 +17,7 @@ import shutil
 from pathlib import Path
 from typing import Optional, List
 
-# ============ CRITICAL: CHECK ENV BEFORE IMPORTS ============
+# ============ ENV CHECK ============
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -32,21 +33,23 @@ API_HASH = os.getenv("API_HASH")
 PHONE_NUMBER = os.getenv("PHONE_NUMBER")  # optional
 OWNER_ID = int(os.getenv("OWNER_ID"))
 
-# Now import heavy modules
+# ============ IMPORTS ============
 import numpy as np
 from scipy import signal as scipy_signal
+
 from pyrogram import Client, filters, idle
 from pyrogram.types import Message
 from pyrogram.errors import FloodWait, PeerIdInvalid, ChannelInvalid
+
 from pytgcalls import PyTgCalls
-# FIXED IMPORT – no .input_stream
+# NEW API – correct import path for py-tgcalls v2.1.0
 from pytgcalls.types import AudioStream, InputAudioStream
 from pytgcalls.exceptions import GroupCallNotFound, NoActiveGroupCall, NotInGroupCallError
 
+# ============ SETUP ============
 AUDIO_DIR = Path("saved_audios")
 AUDIO_DIR.mkdir(exist_ok=True)
 
-# ============ LOGGING ============
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
@@ -105,14 +108,14 @@ class AudioProcessor:
         try:
             samples = np.frombuffer(audio_data, dtype=np.int16).astype(np.float32) / 32768.0
 
-            # Bass
+            # Bass Boost
             if config.bass > 1.0 and self.bass_coeffs:
                 b, a = self.bass_coeffs
                 filtered = scipy_signal.filtfilt(b, a, samples)
                 bass_gain = 1.0 + (config.bass - 1.0) * 0.5
                 samples = samples + (filtered * bass_gain)
 
-            # EQ
+            # 5‑Band EQ
             eq = config.equalizer
             nyquist = SAMPLE_RATE / 2
             if eq[0] != 1.0:
@@ -176,7 +179,7 @@ audio_processor = AudioProcessor()
 
 # ============ TELEGRAM CLIENT ============
 app = Client(
-    "bc_session",
+    "ELUMTER_COPY_userbot",
     api_id=API_ID,
     api_hash=API_HASH,
     phone_number=PHONE_NUMBER if PHONE_NUMBER else None,
