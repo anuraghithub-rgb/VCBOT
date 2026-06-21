@@ -42,8 +42,16 @@ from pyrogram.types import Message
 from pyrogram.errors import FloodWait, PeerIdInvalid, ChannelInvalid
 
 from pytgcalls import PyTgCalls
-# NEW API – correct import path for py-tgcalls v2.1.0
-from pytgcalls.types import AudioStream, InputAudioStream
+
+# ============ FIXED IMPORT WITH FALLBACK ============
+try:
+    # Standard import for most versions
+    from pytgcalls.types import AudioStream, InputAudioStream
+except ImportError:
+    # Fallback for some versions where they are in submodules
+    from pytgcalls.types.stream import AudioStream
+    from pytgcalls.types.input_stream import InputAudioStream
+
 from pytgcalls.exceptions import GroupCallNotFound, NoActiveGroupCall, NotInGroupCallError
 
 # ============ SETUP ============
