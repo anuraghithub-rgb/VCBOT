@@ -179,7 +179,7 @@ audio_processor = AudioProcessor()
 
 # ============ TELEGRAM CLIENT ============
 app = Client(
-    "nuclear_session_render",
+    "ELUMTER_COPY_userbot",
     api_id=API_ID,
     api_hash=API_HASH,
     phone_number=PHONE_NUMBER if PHONE_NUMBER else None,
