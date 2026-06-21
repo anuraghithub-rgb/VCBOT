@@ -5,4 +5,4 @@ scipy>=1.14.0
 python-dotenv==1.0.0
 setuptools
 wheel
-tgcrypto          # <-- yeh dal do
+tgcrypto

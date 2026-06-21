@@ -5,7 +5,7 @@
 💀 NUCLEAR VOICE RELAY – RAILWAY EDITION 💀
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Owner-only DM commands. All audio effects included.
-Works with py-tgcalls==2.1.0 and pyrogram==2.0.106.
+Works with py-tgcalls==2.1.0 – uses InputAudioStream directly.
 """
 
 import asyncio
@@ -42,16 +42,8 @@ from pyrogram.types import Message
 from pyrogram.errors import FloodWait, PeerIdInvalid, ChannelInvalid
 
 from pytgcalls import PyTgCalls
-
-# ============ FIXED IMPORT WITH FALLBACK ============
-try:
-    # Standard import for most versions
-    from pytgcalls.types import AudioStream, InputAudioStream
-except ImportError:
-    # Fallback for some versions where they are in submodules
-    from pytgcalls.types.stream import AudioStream
-    from pytgcalls.types.input_stream import InputAudioStream
-
+# SIMPLIFIED: only InputAudioStream is needed
+from pytgcalls.types import InputAudioStream
 from pytgcalls.exceptions import GroupCallNotFound, NoActiveGroupCall, NotInGroupCallError
 
 # ============ SETUP ============
@@ -220,14 +212,13 @@ async def save_audio(message: Message) -> Optional[str]:
 
 async def join_vc(chat_id: int) -> bool:
     try:
+        # Directly use InputAudioStream, no AudioStream wrapper
         await calls.join_group_call(
             chat_id,
-            AudioStream(
-                InputAudioStream(
-                    sample_rate=SAMPLE_RATE,
-                    channels=CHANNELS,
-                    frame_duration=FRAME_DURATION,
-                )
+            InputAudioStream(
+                sample_rate=SAMPLE_RATE,
+                channels=CHANNELS,
+                frame_duration=FRAME_DURATION,
             )
         )
         config.in_vc = True
@@ -254,15 +245,14 @@ async def play_audio(file_path: str) -> bool:
     if not config.in_vc or not config.vc_chat:
         return False
     try:
+        # Directly use InputAudioStream with path
         await calls.change_stream(
             config.vc_chat,
-            AudioStream(
-                InputAudioStream(
-                    path=file_path,
-                    sample_rate=SAMPLE_RATE,
-                    channels=CHANNELS,
-                    frame_duration=FRAME_DURATION,
-                )
+            InputAudioStream(
+                path=file_path,
+                sample_rate=SAMPLE_RATE,
+                channels=CHANNELS,
+                frame_duration=FRAME_DURATION,
             )
         )
         return True
